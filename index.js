@@ -163,58 +163,54 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 
 // Initialize database tables
 function initializeDatabase() {
-  // Users table
-  db.run(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    name TEXT NOT NULL,
-    grade_section TEXT NOT NULL,
-    lrn TEXT NOT NULL,
-    adviser TEXT NOT NULL,
-    schedule TEXT NOT NULL,
-    qr_code_in TEXT NOT NULL,
-    qr_code_out TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  )`, (err) => {
-    if (err) {
-      console.error('Error creating users table:', err.message);
-    }
-  });
+  // Use db.serialize to ensure sequential execution
+  db.serialize(() => {
+    // Users table
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      grade_section TEXT NOT NULL,
+      lrn TEXT NOT NULL,
+      adviser TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      qr_code_in TEXT NOT NULL,
+      qr_code_out TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`);
 
-  // Attendance table
-  db.run(`CREATE TABLE IF NOT EXISTS attendance (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_email TEXT NOT NULL,
-    date TEXT NOT NULL,
-    scan_time TEXT NOT NULL,
-    status TEXT NOT NULL,
-    qr_type TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (user_email) REFERENCES users (email)
-  )`, (err) => {
-    if (err) {
-      console.error('Error creating attendance table:', err.message);
-    }
-  });
+    // Attendance table
+    db.run(`CREATE TABLE IF NOT EXISTS attendance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_email TEXT NOT NULL,
+      date TEXT NOT NULL,
+      scan_time TEXT NOT NULL,
+      status TEXT NOT NULL,
+      qr_type TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_email) REFERENCES users (email)
+    )`);
 
-  // Scan history table
-  db.run(`CREATE TABLE IF NOT EXISTS scan_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_email TEXT NOT NULL,
-    qr_code TEXT NOT NULL,
-    qr_type TEXT NOT NULL,
-    scan_time TEXT NOT NULL,
-    status TEXT NOT NULL,
-    message TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (user_email) REFERENCES users (email)
-  )`, (err) => {
-    if (err) {
-      console.error('Error creating scan_history table:', err.message);
-    } else {
-      console.log('Database tables initialized');
-      createIndexes(); // Add indexes for performance
-    }
+    // Scan history table
+    db.run(`CREATE TABLE IF NOT EXISTS scan_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_email TEXT NOT NULL,
+      qr_code TEXT NOT NULL,
+      qr_type TEXT NOT NULL,
+      scan_time TEXT NOT NULL,
+      status TEXT NOT NULL,
+      message TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_email) REFERENCES users (email)
+    )`, (err) => {
+      if (err) {
+        console.error('Error creating scan_history table:', err.message);
+      } else {
+        console.log('Database tables initialized');
+        // Create indexes only after all tables are created
+        createIndexes();
+      }
+    });
   });
 }
 
