@@ -138,7 +138,18 @@ app.get('/', (req, res) => {
 });
 
 // Database path
-const DB_PATH = path.join(__dirname, 'attendance.db');
+// For Railway: Use persistent volume at /app/data
+// For local: Use current directory
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'attendance.db');
+
+// Ensure data directory exists
+const dataDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+  console.log(`Created data directory: ${dataDir}`);
+}
+
+console.log(`Using database at: ${DB_PATH}`);
 
 // Initialize database
 const db = new sqlite3.Database(DB_PATH, (err) => {
