@@ -253,7 +253,8 @@
     </div>
 
     <script>
-        const API_URL = 'http://localhost:8080/api';
+        // Use relative URL - works on both localhost and Railway
+        const API_URL = window.location.origin + '/api';
         let allData = { users: [], attendance: [], history: [] };
 
         function switchTab(tabName) {
