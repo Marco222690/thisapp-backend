@@ -312,33 +312,88 @@ function processQrScan(qrCode) {
         const scanTime = formatTimePhilippine(now);
         const date = formatDatePhilippine(now);
 
-        let status = 'scanned';
-        let message = 'Your QRcode is Scanned';
+        // Check if already scanned today for this type (IN or OUT)
+        db.get(
+          'SELECT * FROM attendance WHERE user_email = ? AND date = ? AND qr_type = ?',
+          [user.email, date, qrType],
+          (err, existingScan) => {
+            if (err) {
+              return reject(err);
+            }
 
-        // For IN scans, check time validation
-        if (qrType === 'IN') {
-          const hour = now.getHours();
-          const minute = now.getMinutes();
+            // If already scanned today for this type, reject
+            if (existingScan) {
+              // Save to scan history with "already scanned" message
+              db.run(
+                `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [user.email, qrCode, qrType, scanTime, 'duplicate', 'Already scanned today', now.toISOString()],
+                (err) => {
+                  if (err) console.error('Error saving scan history:', err);
+                }
+              );
 
-          // Check if before 5:30 AM
-          if (hour < 5 || (hour === 5 && minute < 30)) {
-            status = 'invalid';
-            message = 'Invalid QRcode';
+              return resolve({
+                success: false,
+                status: 'duplicate',
+                message: 'Already scanned today',
+                userEmail: user.email,
+                userName: user.name,
+                qrType: qrType,
+                scanTime: existingScan.scan_time,
+                date: date,
+              });
+            }
 
-            // Save to scan history only
+            // Determine status based on time
+            let status = 'scanned';
+            let message = 'Your QRcode is Scanned';
+            const hour = now.getHours();
+            const minute = now.getMinutes();
+
+            if (qrType === 'IN') {
+              // Time-based status for IN scans
+              // Before 7:00 AM = Present
+              // 7:00 AM - 7:30 AM = Late
+              // After 7:30 AM = Absent (but still scanned)
+              if (hour < 7) {
+                status = 'present';
+                message = 'Present - On time!';
+              } else if (hour === 7 && minute <= 30) {
+                status = 'late';
+                message = 'Late arrival';
+              } else {
+                status = 'absent';
+                message = 'Too late - marked absent';
+              }
+            } else {
+              // OUT scans - always valid
+              status = 'out';
+              message = 'Checked out';
+            }
+
+            // Save to attendance (first scan of the day)
+            db.run(
+              `INSERT INTO attendance (user_email, date, scan_time, status, qr_type, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              [user.email, date, scanTime, status, qrType, now.toISOString()],
+              (err) => {
+                if (err) console.error('Error saving attendance:', err);
+              }
+            );
+
+            // Save to scan history
             db.run(
               `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)`,
               [user.email, qrCode, qrType, scanTime, status, message, now.toISOString()],
               (err) => {
-                if (err) {
-                  console.error('Error saving scan history:', err);
-                }
+                if (err) console.error('Error saving scan history:', err);
               }
             );
 
-            return resolve({
-              success: false,
+            resolve({
+              success: true,
               status: status,
               message: message,
               userEmail: user.email,
@@ -347,58 +402,8 @@ function processQrScan(qrCode) {
               scanTime: scanTime,
               date: date,
             });
-          } else if (hour < 6 || (hour === 6 && minute <= 0)) {
-            // Valid - between 5:30 AM and 6:00 AM (present)
-            status = 'present';
-            message = 'Your QRcode is Scanned';
-          } else {
-            // After 6:00 AM (absent)
-            status = 'absent';
-            message = 'Your QRcode is Scanned';
-          }
-        } else {
-          // OUT scans - always valid
-          status = 'scanned';
-          message = 'Your QRcode is Scanned';
-        }
-
-        // Save to attendance
-        db.run(
-          `INSERT INTO attendance (user_email, date, scan_time, status, qr_type, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT(user_email, date, qr_type) DO UPDATE SET
-           scan_time = excluded.scan_time,
-           status = excluded.status`,
-          [user.email, date, scanTime, status, qrType, now.toISOString()],
-          (err) => {
-            if (err) {
-              console.error('Error saving attendance:', err);
-            }
           }
         );
-
-        // Save to scan history
-        db.run(
-          `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [user.email, qrCode, qrType, scanTime, status, message, now.toISOString()],
-          (err) => {
-            if (err) {
-              console.error('Error saving scan history:', err);
-            }
-          }
-        );
-
-        resolve({
-          success: true,
-          status: status,
-          message: message,
-          userEmail: user.email,
-          userName: user.name,
-          qrType: qrType,
-          scanTime: scanTime,
-          date: date,
-        });
       }
     );
   });
