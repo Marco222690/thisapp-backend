@@ -371,9 +371,34 @@ function processQrScan(qrCode) {
                 message = 'Late arrival';
               }
             } else {
-              // OUT scans - always valid
-              status = 'out';
-              message = 'Checked out';
+              // OUT scans - only allowed between 7:10 PM - 7:20 PM (19:10 - 19:20)
+              if (hour === 19 && minute >= 10 && minute <= 20) {
+                // Valid OUT time: 7:10 PM - 7:20 PM
+                status = 'out';
+                message = 'Checked out - Goodbye!';
+              } else {
+                // Outside allowed OUT time - reject
+                // Save to scan history with invalid message
+                db.run(
+                  `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                  [user.email, qrCode, qrType, scanTime, 'invalid', 'OUT scan only allowed 7:10-7:20 PM', now.toISOString()],
+                  (err) => {
+                    if (err) console.error('Error saving scan history:', err);
+                  }
+                );
+
+                return resolve({
+                  success: false,
+                  status: 'invalid',
+                  message: 'OUT scan only allowed 7:10-7:20 PM',
+                  userEmail: user.email,
+                  userName: user.name,
+                  qrType: qrType,
+                  scanTime: scanTime,
+                  date: date,
+                });
+              }
             }
 
             // Save to attendance (first scan of the day)
