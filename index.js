@@ -46,6 +46,18 @@ function formatDatePhilippine(date) {
   return `${year}-${month}-${day}`;
 }
 
+// Format full datetime for created_at column (Philippine timezone)
+function formatDateTimePhilippine(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
 // Bug #2 fix: Input Validation Functions
 // Validate email format
 function isValidEmail(email) {
@@ -327,7 +339,7 @@ function processQrScan(qrCode) {
               db.run(
                 `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [user.email, qrCode, qrType, scanTime, 'duplicate', 'Already scanned today', now.toISOString()],
+                [user.email, qrCode, qrType, scanTime, 'duplicate', 'Already scanned today', formatDateTimePhilippine(now)],
                 (err) => {
                   if (err) console.error('Error saving scan history:', err);
                 }
@@ -382,7 +394,7 @@ function processQrScan(qrCode) {
                 db.run(
                   `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                  [user.email, qrCode, qrType, scanTime, 'invalid', 'OUT scan only allowed 7:10-7:20 PM', now.toISOString()],
+                  [user.email, qrCode, qrType, scanTime, 'invalid', 'OUT scan only allowed 7:10-7:20 PM', formatDateTimePhilippine(now)],
                   (err) => {
                     if (err) console.error('Error saving scan history:', err);
                   }
@@ -405,7 +417,7 @@ function processQrScan(qrCode) {
             db.run(
               `INSERT INTO attendance (user_email, date, scan_time, status, qr_type, created_at)
                VALUES (?, ?, ?, ?, ?, ?)`,
-              [user.email, date, scanTime, status, qrType, now.toISOString()],
+              [user.email, date, scanTime, status, qrType, formatDateTimePhilippine(now)],
               (err) => {
                 if (err) console.error('Error saving attendance:', err);
               }
@@ -415,7 +427,7 @@ function processQrScan(qrCode) {
             db.run(
               `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [user.email, qrCode, qrType, scanTime, status, message, now.toISOString()],
+              [user.email, qrCode, qrType, scanTime, status, message, formatDateTimePhilippine(now)],
               (err) => {
                 if (err) console.error('Error saving scan history:', err);
               }
