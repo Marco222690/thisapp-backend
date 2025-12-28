@@ -353,18 +353,22 @@ function processQrScan(qrCode) {
 
             if (qrType === 'IN') {
               // Time-based status for IN scans
-              // Before 7:00 AM = Present
-              // 7:00 AM - 7:30 AM = Late
-              // After 7:30 AM = Absent (but still scanned)
-              if (hour < 7) {
+              // 12:20 PM - 12:45 PM = Present (on time)
+              // 12:46 PM and later = Late
+              // Before 12:20 PM = Too early (but still present)
+
+              if (hour < 12 || (hour === 12 && minute < 20)) {
+                // Before 12:20 PM - early arrival, still present
+                status = 'present';
+                message = 'Present - Early arrival!';
+              } else if (hour === 12 && minute >= 20 && minute <= 45) {
+                // 12:20 PM - 12:45 PM = Present (on time)
                 status = 'present';
                 message = 'Present - On time!';
-              } else if (hour === 7 && minute <= 30) {
+              } else {
+                // After 12:45 PM = Late
                 status = 'late';
                 message = 'Late arrival';
-              } else {
-                status = 'absent';
-                message = 'Too late - marked absent';
               }
             } else {
               // OUT scans - always valid
