@@ -1,858 +1,693 @@
-// Load environment variables from .env file
+// ============================================
+// THISAPP BACKEND - FIREBASE VERSION
+// ============================================
+// Purpose: Backend server using Firebase Realtime Database
+// 
+// This replaces SQLite with Firebase for:
+// - Persistent cloud storage (no data loss)
+// - Real-time sync capabilities
+// - Free tier with generous limits
+//
+// Database URL: https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app
+// ============================================
+
 require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-// const nodemailer = require('nodemailer'); // Removed for SMS
 const path = require('path');
 const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 // ============================================
-// SMS Service Configuration
+// FIREBASE CONFIGURATION
 // ============================================
-// Placeholder for SMS Logic (using GSM Module)
-// If GSM module is connected to backend, you would initialize serial port here.
-// const SerialPort = require('serialport');
+const FIREBASE_DATABASE_URL = process.env.FIREBASE_DATABASE_URL ||
+    'https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-// Function to send SMS notification (Placeholder)
-async function sendParentSMS(contactNumber, studentName, type, time) {
-  if (!contactNumber || contactNumber.trim() === '') {
-    console.log('⚠️ No contact number provided, skipping SMS');
-    return { success: false, message: 'No contact number' };
-  }
+// Helper function to make Firebase REST API calls
+async function firebaseRequest(path, method = 'GET', data = null) {
+    const url = `${FIREBASE_DATABASE_URL}${path}.json`;
 
-  const scanType = type === 'IN' ? 'IN' : 'OUT';
-  // Short SMS message
-  const message = `Attendance: ${studentName} scanned ${scanType} at ${time}.`;
+    const options = {
+        method: method,
+        headers: {
+            'Content-Type': 'application/json',
+        },
+    };
 
-  console.log(`📱 [GSM MOCK] Sending SMS to ${contactNumber}: "${message}"`);
+    if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+        options.body = JSON.stringify(data);
+    }
 
-  // TODO: Add actual GSM AT Command logic here if GSM is connected to Server
-  // or return this message to ESP32 if ESP32 handles SMS.
-
-  return { success: true, message: 'SMS Queued/Sent' };
+    try {
+        const response = await fetch(url, options);
+        const result = await response.json();
+        return result;
+    } catch (error) {
+        console.error(`Firebase ${method} error:`, error);
+        throw error;
+    }
 }
 
-
 // ============================================
-// Bug #1 fix: Philippine Timezone Helper
+// Philippine Timezone Helper
 // ============================================
-// Ensures backend uses same timezone as mobile app
 function getPhilippineTime() {
-  // Get current time and convert to Philippine timezone (UTC+8)
-  const now = new Date();
-
-  // Convert to Philippine time (UTC+8)
-  const phTime = new Date(now.toLocaleString('en-US', {
-    timeZone: 'Asia/Manila'
-  }));
-
-  return phTime;
+    const now = new Date();
+    const phTime = new Date(now.toLocaleString('en-US', {
+        timeZone: 'Asia/Manila'
+    }));
+    return phTime;
 }
 
-// Format time as h:mm:ssa (e.g., "5:45:23am")
 function formatTimePhilippine(date) {
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'pm' : 'am';
-
-  hours = hours % 12 || 12; // Convert to 12-hour format
-
-  return `${hours}:${minutes}:${seconds}${ampm}`;
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12 || 12;
+    return `${hours}:${minutes}:${seconds}${ampm}`;
 }
 
-// Format date as yyyy-MM-dd
 function formatDatePhilippine(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
-// Format full datetime for created_at column (Philippine timezone)
 function formatDateTimePhilippine(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
-// Bug #2 fix: Input Validation Functions
-// Validate email format
-function isValidEmail(email) {
-  if (!email || typeof email !== 'string') return false;
-
-  // Basic email regex
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
-}
-
-// Validate LRN (11-12 digits)
-function isValidLRN(lrn) {
-  if (!lrn || typeof lrn !== 'string') return false;
-
-  // LRN must be 11-12 digits only
-  const lrnRegex = /^\d{11,12}$/;
-  return lrnRegex.test(lrn);
-}
-
-// Validate user data for registration
-function validateUserData(data) {
-  const errors = [];
-
-  // Required fields
-  if (!data.email) {
-    errors.push('Email is required');
-  } else if (!isValidEmail(data.email)) {
-    errors.push('Invalid email format');
-  }
-
-  if (!data.name || data.name.trim().length === 0) {
-    errors.push('Name is required');
-  } else if (data.name.length > 100) {
-    errors.push('Name too long (max 100 characters)');
-  }
-
-  if (!data.lrn) {
-    errors.push('LRN is required');
-  } else if (!isValidLRN(data.lrn)) {
-    errors.push('Invalid LRN format (must be 11-12 digits)');
-  }
-
-  if (!data.qrCodeIn || !data.qrCodeOut) {
-    errors.push('QR codes are required');
-  }
-
-  // Optional but validated if present
-  if (data.gradeSection && data.gradeSection.length > 50) {
-    errors.push('Grade section too long (max 50 characters)');
-  }
-
-  if (data.adviser && data.adviser.length > 100) {
-    errors.push('Adviser name too long (max 100 characters)');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors: errors
-  };
-}
-
-// Sanitize string input to prevent injection
-function sanitizeString(str) {
-  if (!str) return '';
-  return String(str).trim();
-}
 // ============================================
+// Input Validation Functions
+// ============================================
+function isValidEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+}
 
+function isValidLRN(lrn) {
+    if (!lrn || typeof lrn !== 'string') return false;
+    const lrnRegex = /^\d{11,12}$/;
+    return lrnRegex.test(lrn);
+}
+
+function validateUserData(data) {
+    const errors = [];
+
+    if (!data.email) {
+        errors.push('Email is required');
+    } else if (!isValidEmail(data.email)) {
+        errors.push('Invalid email format');
+    }
+
+    if (!data.name || data.name.trim().length === 0) {
+        errors.push('Name is required');
+    }
+
+    if (!data.lrn) {
+        errors.push('LRN is required');
+    } else if (!isValidLRN(data.lrn)) {
+        errors.push('Invalid LRN format (must be 11-12 digits)');
+    }
+
+    if (!data.qrCodeIn || !data.qrCodeOut) {
+        errors.push('QR codes are required');
+    }
+
+    return {
+        isValid: errors.length === 0,
+        errors: errors
+    };
+}
+
+function sanitizeString(str) {
+    if (!str) return '';
+    return String(str).trim();
+}
+
+// Convert email to Firebase-safe key (replace . with ,)
+function emailToKey(email) {
+    return email.replace(/\./g, ',');
+}
+
+function keyToEmail(key) {
+    return key.replace(/,/g, '.');
+}
+
+// ============================================
+// SMS Service Placeholder
+// ============================================
+async function sendParentSMS(contactNumber, studentName, type, time) {
+    if (!contactNumber || contactNumber.trim() === '') {
+        console.log('⚠️ No contact number provided, skipping SMS');
+        return { success: false, message: 'No contact number' };
+    }
+
+    const scanType = type === 'IN' ? 'IN' : 'OUT';
+    const message = `Attendance: ${studentName} scanned ${scanType} at ${time}.`;
+    console.log(`📱 [GSM MOCK] Sending SMS to ${contactNumber}: "${message}"`);
+
+    return { success: true, message: 'SMS Queued/Sent' };
+}
+
+// ============================================
 // Middleware
+// ============================================
 app.use(cors());
 app.use(express.json());
 
-// Serve static HTML file for database viewer (must be before other routes)
+// Serve static HTML file for database viewer
 app.get('/', (req, res) => {
-  const htmlPath = path.join(__dirname, 'view-database.html');
-  if (fs.existsSync(htmlPath)) {
-    res.sendFile(htmlPath);
-  } else {
-    res.status(404).send(`
+    const htmlPath = path.join(__dirname, 'view-database.html');
+    if (fs.existsSync(htmlPath)) {
+        res.sendFile(htmlPath);
+    } else {
+        res.send(`
       <html>
-        <head><title>Database Viewer</title></head>
-        <body style="font-family: Arial; padding: 40px; text-align: center;">
-          <h1>Database Viewer</h1>
-          <p>HTML file not found. Please make sure view-database.html exists in the backend-sqlite folder.</p>
-          <p>API is working. Try: <a href="/api/health">/api/health</a></p>
+        <head><title>ThisApp Backend - Firebase</title></head>
+        <body style="font-family: Arial; padding: 40px; text-align: center; background: #1a1a2e; color: white;">
+          <h1>🔥 ThisApp Backend (Firebase)</h1>
+          <p>Server is running with Firebase Realtime Database</p>
+          <p>Database: <code>${FIREBASE_DATABASE_URL}</code></p>
+          <p>API Status: <a href="/api/health" style="color: #4ade80;">/api/health</a></p>
         </body>
       </html>
     `);
-  }
-});
-
-// Database path
-// For Railway: Use persistent volume at /app/data
-// For local: Use current directory
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'attendance.db');
-
-// Ensure data directory exists
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  console.log(`Created data directory: ${dataDir}`);
-}
-
-console.log(`Using database at: ${DB_PATH}`);
-
-// Initialize database
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Error opening database:', err.message);
-  } else {
-    console.log('Connected to SQLite database');
-    initializeDatabase();
-  }
-});
-
-// Initialize database tables
-function initializeDatabase() {
-  // Use db.serialize to ensure sequential execution
-  db.serialize(() => {
-    // Users table
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      name TEXT NOT NULL,
-      grade_section TEXT NOT NULL,
-      lrn TEXT NOT NULL,
-      adviser TEXT NOT NULL,
-      contact_number TEXT,
-      schedule TEXT NOT NULL,
-      qr_code_in TEXT NOT NULL,
-      qr_code_out TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    )`);
-
-    // Attendance table
-    db.run(`CREATE TABLE IF NOT EXISTS attendance (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_email TEXT NOT NULL,
-      date TEXT NOT NULL,
-      scan_time TEXT NOT NULL,
-      status TEXT NOT NULL,
-      qr_type TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_email) REFERENCES users (email)
-    )`);
-
-    // Scan history table
-    db.run(`CREATE TABLE IF NOT EXISTS scan_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_email TEXT NOT NULL,
-      qr_code TEXT NOT NULL,
-      qr_type TEXT NOT NULL,
-      scan_time TEXT NOT NULL,
-      status TEXT NOT NULL,
-      message TEXT,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_email) REFERENCES users (email)
-    )`, (err) => {
-      if (err) {
-        console.error('Error creating scan_history table:', err.message);
-      } else {
-        console.log('Database tables initialized');
-        // Create indexes only after all tables are created
-        createIndexes();
-      }
-    });
-  });
-}
-
-// Performance Optimization: Create indexes for faster queries
-function createIndexes() {
-  console.log('Creating database indexes for performance...');
-
-  // Index on users.email (most frequently queried)
-  db.run('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)', (err) => {
-    if (err) console.error('Error creating users email index:', err.message);
-  });
-
-  // Index on attendance.user_email (for quick user attendance lookup)
-  db.run('CREATE INDEX IF NOT EXISTS idx_attendance_email ON attendance(user_email)', (err) => {
-    if (err) console.error('Error creating attendance email index:', err.message);
-  });
-
-  // Index on attendance.date (for date-based queries)
-  db.run('CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)', (err) => {
-    if (err) console.error('Error creating attendance date index:', err.message);
-  });
-
-  // Composite index on attendance for common query pattern
-  db.run('CREATE INDEX IF NOT EXISTS idx_attendance_email_date ON attendance(user_email, date)', (err) => {
-    if (err) console.error('Error creating attendance composite index:', err.message);
-  });
-
-  // Index on scan_history.user_email (for history queries)
-  db.run('CREATE INDEX IF NOT EXISTS idx_history_email ON scan_history(user_email)', (err) => {
-    if (err) console.error('Error creating history email index:', err.message);
-  });
-
-  // Index on scan_history.created_at (for chronological sorting)
-  db.run('CREATE INDEX IF NOT EXISTS idx_history_created ON scan_history(created_at)', (err) => {
-    if (err) console.error('Error creating history created_at index:', err.message);
-  });
-
-  // Index on users QR codes (for fast QR lookups)
-  db.run('CREATE INDEX IF NOT EXISTS idx_users_qr_in ON users(qr_code_in)', (err) => {
-    if (err) console.error('Error creating QR IN index:', err.message);
-  });
-
-  db.run('CREATE INDEX IF NOT EXISTS idx_users_qr_out ON users(qr_code_out)', (err) => {
-    if (err) {
-      console.error('Error creating QR OUT index:', err.message);
-    } else {
-      console.log('✓ All database indexes created successfully!');
-      console.log('✓ Query performance optimized (10x faster)');
     }
-  });
-}
+});
 
-// Helper function to format time
-function formatTime(date) {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const seconds = date.getSeconds();
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  const hour12 = hours % 12 || 12;
-  const minStr = minutes < 10 ? `0${minutes}` : minutes;
-  const secStr = seconds < 10 ? `0${seconds}` : seconds;
-  return `${hour12}:${minStr}:${secStr}${ampm}`;
-}
+// ============================================
+// API ENDPOINTS
+// ============================================
 
-// Helper function to format date
-function formatDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+// Health check
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Server is running with Firebase',
+        database: 'Firebase Realtime Database',
+        timestamp: formatDateTimePhilippine(getPhilippineTime())
+    });
+});
 
-// Process QR code scan
-function processQrScan(qrCode) {
-  return new Promise((resolve, reject) => {
-    // Get user by QR code
-    db.get(
-      'SELECT * FROM users WHERE qr_code_in = ? OR qr_code_out = ?',
-      [qrCode, qrCode],
-      (err, user) => {
-        if (err) {
-          return reject(err);
+// ============================================
+// QR SCAN PROCESSING
+// ============================================
+app.post('/api/scan', async (req, res) => {
+    try {
+        const { qrCode } = req.body;
+
+        if (!qrCode) {
+            return res.status(400).json({
+                success: false,
+                message: 'QR code is required',
+            });
         }
 
-        if (!user) {
-          return resolve({
-            success: false,
-            status: 'invalid',
-            message: 'Invalid QRcode',
-            error: 'User not found',
-          });
+        console.log(`📷 Processing QR: ${qrCode}`);
+
+        // Get user by QR code
+        const users = await firebaseRequest('/users');
+        let foundUser = null;
+        let userKey = null;
+
+        if (users) {
+            for (const [key, user] of Object.entries(users)) {
+                if (user.qr_code_in === qrCode || user.qr_code_out === qrCode) {
+                    foundUser = user;
+                    userKey = key;
+                    break;
+                }
+            }
+        }
+
+        if (!foundUser) {
+            return res.json({
+                success: false,
+                status: 'invalid',
+                message: 'Invalid QRcode',
+                error: 'User not found',
+            });
         }
 
         // Determine QR type
         const qrType = qrCode.includes('_IN_') ? 'IN' : 'OUT';
 
-        // Bug #1 fix: Use Philippine timezone
+        // Get Philippine time
         const now = getPhilippineTime();
         const scanTime = formatTimePhilippine(now);
         const date = formatDatePhilippine(now);
+        const dateKey = date.replace(/-/g, '_'); // Firebase-safe date key
 
-        // Check if already scanned today for this type (IN or OUT)
-        db.get(
-          'SELECT * FROM attendance WHERE user_email = ? AND date = ? AND qr_type = ?',
-          [user.email, date, qrType],
-          (err, existingScan) => {
-            if (err) {
-              return reject(err);
-            }
+        // Check if already scanned today for this type
+        const attendanceKey = `${emailToKey(foundUser.email)}_${dateKey}_${qrType}`;
+        const existingAttendance = await firebaseRequest(`/attendance/${attendanceKey}`);
 
-            // If already scanned today for this type, reject
-            if (existingScan) {
-              // Save to scan history with "already scanned" message
-              db.run(
-                `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [user.email, qrCode, qrType, scanTime, 'duplicate', 'Already scanned today', formatDateTimePhilippine(now)],
-                (err) => {
-                  if (err) console.error('Error saving scan history:', err);
-                }
-              );
+        if (existingAttendance) {
+            // Save to scan history with "already scanned" message
+            await firebaseRequest('/scan_history', 'POST', {
+                user_email: foundUser.email,
+                qr_code: qrCode,
+                qr_type: qrType,
+                scan_time: scanTime,
+                status: 'duplicate',
+                message: 'Already scanned today',
+                created_at: formatDateTimePhilippine(now)
+            });
 
-              return resolve({
+            return res.json({
                 success: false,
                 status: 'duplicate',
                 message: 'Already scanned today',
-                userEmail: user.email,
-                userName: user.name,
+                userEmail: foundUser.email,
+                userName: foundUser.name,
                 qrType: qrType,
-                scanTime: existingScan.scan_time,
+                scanTime: existingAttendance.scan_time,
                 date: date,
-              });
-            }
+            });
+        }
 
-            // Determine status based on time
-            let status = 'scanned';
-            let message = 'Your QRcode is Scanned';
-            const hour = now.getHours();
-            const minute = now.getMinutes();
+        // Determine status based on time
+        let status = 'scanned';
+        let message = 'Your QRcode is Scanned';
+        const hour = now.getHours();
+        const minute = now.getMinutes();
 
-            if (qrType === 'IN') {
-              // Time-based status for IN scans
-              // 12:20 PM - 12:45 PM = Present (on time)
-              // 12:46 PM and later = Late
-              // Before 12:20 PM = Too early (but still present)
-
-              if (hour < 12 || (hour === 12 && minute < 20)) {
-                // Before 12:20 PM - early arrival, still present
+        if (qrType === 'IN') {
+            if (hour < 12 || (hour === 12 && minute < 20)) {
                 status = 'present';
                 message = 'Present - Early arrival!';
-              } else if (hour === 12 && minute >= 20 && minute <= 45) {
-                // 12:20 PM - 12:45 PM = Present (on time)
+            } else if (hour === 12 && minute >= 20 && minute <= 45) {
                 status = 'present';
                 message = 'Present - On time!';
-              } else {
-                // After 12:45 PM = Late
+            } else {
                 status = 'late';
                 message = 'Late arrival';
-              }
-            } else {
-              // OUT scans - only allowed between 7:10 PM - 7:20 PM (19:10 - 19:20)
-              if (hour === 19 && minute >= 10 && minute <= 20) {
-                // Valid OUT time: 7:10 PM - 7:20 PM
+            }
+        } else {
+            // OUT scans - only allowed between 7:10 PM - 7:20 PM
+            if (hour === 19 && minute >= 10 && minute <= 20) {
                 status = 'out';
                 message = 'Checked out - Goodbye!';
-              } else {
-                // Outside allowed OUT time - reject
-                // Save to scan history with invalid message
-                db.run(
-                  `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                  [user.email, qrCode, qrType, scanTime, 'invalid', 'OUT scan only allowed 7:10-7:20 PM', formatDateTimePhilippine(now)],
-                  (err) => {
-                    if (err) console.error('Error saving scan history:', err);
-                  }
-                );
-
-                return resolve({
-                  success: false,
-                  status: 'invalid',
-                  message: 'OUT scan only allowed 7:10-7:20 PM',
-                  userEmail: user.email,
-                  userName: user.name,
-                  qrType: qrType,
-                  scanTime: scanTime,
-                  date: date,
-                });
-              }
-            }
-
-            // Save to attendance (first scan of the day)
-            db.run(
-              `INSERT INTO attendance (user_email, date, scan_time, status, qr_type, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-              [user.email, date, scanTime, status, qrType, formatDateTimePhilippine(now)],
-              (err) => {
-                if (err) console.error('Error saving attendance:', err);
-              }
-            );
-
-            // Save to scan history
-            db.run(
-              `INSERT INTO scan_history (user_email, qr_code, qr_type, scan_time, status, message, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [user.email, qrCode, qrType, scanTime, status, message, formatDateTimePhilippine(now)],
-              (err) => {
-                if (err) console.error('Error saving scan history:', err);
-              }
-            );
-
-            // Send SMS notification (Mock/Placeholder)
-            if (user.contact_number && user.contact_number.trim() !== '') {
-              sendParentSMS(
-                user.contact_number,
-                user.name,
-                qrType,
-                scanTime
-              ).then(smsResult => {
-                if (smsResult.success) {
-                  console.log(`📱 SMS request processed for: ${user.contact_number}`);
-                }
-              }).catch(err => {
-                console.error('SMS error:', err);
-              });
             } else {
-              console.log(`ℹ️ No contact number for ${user.name}`);
+                await firebaseRequest('/scan_history', 'POST', {
+                    user_email: foundUser.email,
+                    qr_code: qrCode,
+                    qr_type: qrType,
+                    scan_time: scanTime,
+                    status: 'invalid',
+                    message: 'OUT scan only allowed 7:10-7:20 PM',
+                    created_at: formatDateTimePhilippine(now)
+                });
+
+                return res.json({
+                    success: false,
+                    status: 'invalid',
+                    message: 'OUT scan only allowed 7:10-7:20 PM',
+                    userEmail: foundUser.email,
+                    userName: foundUser.name,
+                    qrType: qrType,
+                    scanTime: scanTime,
+                    date: date,
+                });
             }
+        }
 
-            resolve({
-              success: true,
-              status: status,
-              message: message,
-              userEmail: user.email,
-              userName: user.name,
-              qrType: qrType,
-              scanTime: scanTime,
-              date: date,
-              contactNumber: user.contact_number // Return contact number so ESP32 can use it if needed
-            });
-          }
-        );
-      }
-    );
-  });
-}
+        // Save to attendance
+        await firebaseRequest(`/attendance/${attendanceKey}`, 'PUT', {
+            user_email: foundUser.email,
+            date: date,
+            scan_time: scanTime,
+            status: status,
+            qr_type: qrType,
+            created_at: formatDateTimePhilippine(now)
+        });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
-});
+        // Save to scan history
+        await firebaseRequest('/scan_history', 'POST', {
+            user_email: foundUser.email,
+            qr_code: qrCode,
+            qr_type: qrType,
+            scan_time: scanTime,
+            status: status,
+            message: message,
+            created_at: formatDateTimePhilippine(now)
+        });
 
-//POST/api/scan
-app.post('/api/scan', async (req, res) => {
-  try {
-    const { qrCode } = req.body;
+        // Send SMS notification (Mock)
+        if (foundUser.contact_number && foundUser.contact_number.trim() !== '') {
+            sendParentSMS(foundUser.contact_number, foundUser.name, qrType, scanTime);
+        }
 
-    if (!qrCode) {
-      return res.status(400).json({
-        success: false,
-        message: 'QR code is required',
-      });
-    }
+        console.log(`✅ Scan recorded: ${foundUser.name} - ${qrType} - ${status}`);
 
-    const result = await processQrScan(qrCode);
-    res.json(result);
-  } catch (error) {
-    console.error('Error processing QR scan:', error);
-    res.status(500).json({
-      success: false,
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
-  }
-});
+        res.json({
+            success: true,
+            status: status,
+            message: message,
+            userEmail: foundUser.email,
+            userName: foundUser.name,
+            qrType: qrType,
+            scanTime: scanTime,
+            date: date,
+            contactNumber: foundUser.contact_number
+        });
 
-//POST/api/users
-app.post('/api/users', (req, res) => {
-  try {
-    const { email, name, gradeSection, lrn, adviser, parentContactNumber, schedule, qrCodeIn, qrCodeOut } = req.body;
-
-    // Bug #2 fix: Validate input data
-    const validation = validateUserData({
-      email,
-      name,
-      gradeSection,
-      lrn,
-      adviser,
-      qrCodeIn,
-      qrCodeOut
-    });
-
-    if (!validation.isValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: validation.errors
-      });
-    }
-
-    // Bug #2 fix: Sanitize inputs
-    const sanitizedEmail = sanitizeString(email);
-    const sanitizedName = sanitizeString(name);
-    const sanitizedGradeSection = sanitizeString(gradeSection);
-    const sanitizedLrn = sanitizeString(lrn);
-    const sanitizedAdviser = sanitizeString(adviser);
-    const sanitizedContactNumber = sanitizeString(parentContactNumber);
-    const sanitizedQrIn = sanitizeString(qrCodeIn);
-    const sanitizedQrOut = sanitizeString(qrCodeOut);
-
-    const scheduleJson = JSON.stringify(schedule || {});
-    const now = new Date().toISOString();
-
-    db.run(
-      `INSERT INTO users (email, name, grade_section, lrn, adviser, contact_number, schedule, qr_code_in, qr_code_out, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(email) DO UPDATE SET
-       name = excluded.name,
-       grade_section = excluded.grade_section,
-       lrn = excluded.lrn,
-       adviser = excluded.adviser,
-       contact_number = excluded.contact_number,
-       schedule = excluded.schedule,
-       qr_code_in = excluded.qr_code_in,
-       qr_code_out = excluded.qr_code_out`,
-      [
-        sanitizedEmail,
-        sanitizedName,
-        sanitizedGradeSection,
-        sanitizedLrn,
-        sanitizedAdviser,
-        sanitizedContactNumber,
-        scheduleJson,
-        sanitizedQrIn,
-        sanitizedQrOut,
-        now
-      ],
-      function (err) {
-        if (err) {
-          console.error('Error saving user:', err);
-          return res.status(500).json({
+    } catch (error) {
+        console.error('Error processing QR scan:', error);
+        res.status(500).json({
             success: false,
-            message: 'Error saving user',
-            error: err.message,
-          });
+            status: 'error',
+            message: 'Server error',
+            error: error.message,
+        });
+    }
+});
+
+// ============================================
+// USER MANAGEMENT
+// ============================================
+
+// POST /api/users - Register or update user
+app.post('/api/users', async (req, res) => {
+    try {
+        const { email, name, gradeSection, lrn, adviser, parentContactNumber, schedule, qrCodeIn, qrCodeOut } = req.body;
+
+        const validation = validateUserData({
+            email, name, gradeSection, lrn, adviser, qrCodeIn, qrCodeOut
+        });
+
+        if (!validation.isValid) {
+            return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: validation.errors
+            });
+        }
+
+        const sanitizedEmail = sanitizeString(email);
+        const userKey = emailToKey(sanitizedEmail);
+        const now = new Date().toISOString();
+
+        const userData = {
+            email: sanitizedEmail,
+            name: sanitizeString(name),
+            grade_section: sanitizeString(gradeSection),
+            lrn: sanitizeString(lrn),
+            adviser: sanitizeString(adviser),
+            contact_number: sanitizeString(parentContactNumber),
+            schedule: JSON.stringify(schedule || {}),
+            qr_code_in: sanitizeString(qrCodeIn),
+            qr_code_out: sanitizeString(qrCodeOut),
+            created_at: now
+        };
+
+        await firebaseRequest(`/users/${userKey}`, 'PUT', userData);
+
+        console.log(`✅ User saved: ${sanitizedEmail}`);
+
+        res.json({
+            success: true,
+            message: 'User saved successfully',
+            userId: userKey,
+        });
+
+    } catch (error) {
+        console.error('Error in /api/users:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message,
+        });
+    }
+});
+
+// GET /api/users/:email
+app.get('/api/users/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+        const userKey = emailToKey(email);
+
+        const user = await firebaseRequest(`/users/${userKey}`);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found',
+            });
         }
 
         res.json({
-          success: true,
-          message: 'User saved successfully',
-          userId: this.lastID,
+            success: true,
+            user: {
+                email: user.email,
+                name: user.name,
+                gradeSection: user.grade_section,
+                lrn: user.lrn,
+                adviser: user.adviser,
+                contactNumber: user.contact_number,
+                schedule: JSON.parse(user.schedule || '{}'),
+                qrCodeIn: user.qr_code_in,
+                qrCodeOut: user.qr_code_out,
+                createdAt: user.created_at,
+            },
         });
-      }
-    );
-  } catch (error) {
-    console.error('Error in /api/users:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message,
-    });
-  }
-});
 
-//GET/api/users/:email
-app.get('/api/users/:email', (req, res) => {
-  const { email } = req.params;
-
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, user) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Database error',
-        error: err.message,
-      });
-    }
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        gradeSection: user.grade_section,
-        lrn: user.lrn,
-        adviser: user.adviser,
-        schedule: JSON.parse(user.schedule),
-        qrCodeIn: user.qr_code_in,
-        qrCodeOut: user.qr_code_out,
-        createdAt: user.created_at,
-      },
-    });
-  });
-});
-
-//GET/api/history/:email
-app.get('/api/history/:email', (req, res) => {
-  const { email } = req.params;
-
-  db.all(
-    'SELECT * FROM scan_history WHERE user_email = ? ORDER BY created_at DESC',
-    [email],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          message: 'Database error',
-          error: err.message,
+    } catch (error) {
+        console.error('Error getting user:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error',
+            error: error.message,
         });
-      }
-
-      const history = rows.map(row => ({
-        id: row.id,
-        userEmail: row.user_email,
-        qrCode: row.qr_code,
-        qrType: row.qr_type,
-        scanTime: row.scan_time,
-        status: row.status,
-        message: row.message,
-        createdAt: row.created_at,
-      }));
-
-      res.json({
-        success: true,
-        history: history,
-      });
     }
-  );
 });
 
-//GET/api/attendance/:email
-app.get('/api/attendance/:email', (req, res) => {
-  const { email } = req.params;
+// GET /api/all-users
+app.get('/api/all-users', async (req, res) => {
+    try {
+        const users = await firebaseRequest('/users');
 
-  db.all(
-    'SELECT * FROM attendance WHERE user_email = ? ORDER BY date DESC, created_at DESC',
-    [email],
-    (err, rows) => {
-      if (err) {
-        return res.status(500).json({
-          success: false,
-          message: 'Database error',
-          error: err.message,
+        const userList = users ? Object.values(users).map(user => ({
+            email: user.email,
+            name: user.name,
+            grade_section: user.grade_section,
+            lrn: user.lrn,
+            adviser: user.adviser,
+            contact_number: user.contact_number,
+            qr_code_in: user.qr_code_in,
+            qr_code_out: user.qr_code_out,
+            created_at: user.created_at
+        })) : [];
+
+        res.json({
+            success: true,
+            users: userList,
         });
-      }
 
-      const attendance = rows.map(row => ({
-        id: row.id,
-        userEmail: row.user_email,
-        date: row.date,
-        scanTime: row.scan_time,
-        status: row.status,
-        qrType: row.qr_type,
-        createdAt: row.created_at,
-      }));
-
-      res.json({
-        success: true,
-        attendance: attendance,
-      });
+    } catch (error) {
+        console.error('Error getting all users:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error',
+            error: error.message,
+        });
     }
-  );
 });
 
-//POST/api/sync
-app.post('/api/sync', (req, res) => {
-  try {
-    const { users, scanHistory, attendance } = req.body;
+// ============================================
+// HISTORY & ATTENDANCE
+// ============================================
 
-    const results = {
-      users: { success: 0, failed: 0 },
-      scanHistory: { success: 0, failed: 0 },
-      attendance: { success: 0, failed: 0 },
-    };
+// GET /api/history/:email
+app.get('/api/history/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
 
-    // Sync users
-    if (users && Array.isArray(users)) {
-      users.forEach(user => {
-        const scheduleJson = JSON.stringify(user.schedule || {});
-        db.run(
-          `INSERT INTO users (email, name, grade_section, lrn, adviser, schedule, qr_code_in, qr_code_out, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(email) DO UPDATE SET
-           name = excluded.name,
-           grade_section = excluded.grade_section,
-           lrn = excluded.lrn,
-           adviser = excluded.adviser,
-           schedule = excluded.schedule,
-           qr_code_in = excluded.qr_code_in,
-           qr_code_out = excluded.qr_code_out`,
-          [user.email, user.name, user.gradeSection || '', user.lrn, user.adviser || '',
-            scheduleJson, user.qrCodeIn, user.qrCodeOut, user.createdAt || new Date().toISOString()],
-          (err) => {
-            if (err) {
-              results.users.failed++;
-            } else {
-              results.users.success++;
+        const allHistory = await firebaseRequest('/scan_history');
+
+        const history = [];
+        if (allHistory) {
+            for (const [id, record] of Object.entries(allHistory)) {
+                if (record.user_email === email) {
+                    history.push({
+                        id: id,
+                        userEmail: record.user_email,
+                        qrCode: record.qr_code,
+                        qrType: record.qr_type,
+                        scanTime: record.scan_time,
+                        status: record.status,
+                        message: record.message,
+                        createdAt: record.created_at,
+                    });
+                }
             }
-          }
-        );
-      });
-    }
+        }
 
-    res.json({
-      success: true,
-      message: 'Sync completed',
-      results: results,
-    });
-  } catch (error) {
-    console.error('Error in sync:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Sync error',
-      error: error.message,
-    });
-  }
+        // Sort by created_at descending
+        history.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        res.json({
+            success: true,
+            history: history,
+        });
+
+    } catch (error) {
+        console.error('Error getting history:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error',
+            error: error.message,
+        });
+    }
 });
 
-//GETapi/all-users
-app.get('/api/all-users', (req, res) => {
-  db.all('SELECT * FROM users ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Database error',
-        error: err.message,
-      });
+// GET /api/attendance/:email
+app.get('/api/attendance/:email', async (req, res) => {
+    try {
+        const { email } = req.params;
+
+        const allAttendance = await firebaseRequest('/attendance');
+
+        const attendance = [];
+        if (allAttendance) {
+            for (const [id, record] of Object.entries(allAttendance)) {
+                if (record.user_email === email) {
+                    attendance.push({
+                        id: id,
+                        userEmail: record.user_email,
+                        date: record.date,
+                        scanTime: record.scan_time,
+                        status: record.status,
+                        qrType: record.qr_type,
+                        createdAt: record.created_at,
+                    });
+                }
+            }
+        }
+
+        // Sort by date descending
+        attendance.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        res.json({
+            success: true,
+            attendance: attendance,
+        });
+
+    } catch (error) {
+        console.error('Error getting attendance:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error',
+            error: error.message,
+        });
     }
-    res.json({
-      success: true,
-      users: rows,
-    });
-  });
 });
 
-//GET/api/all-attendance
-app.get('/api/all-attendance', (req, res) => {
-  db.all('SELECT * FROM attendance ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Database error',
-        error: err.message,
-      });
+// GET /api/all-attendance
+app.get('/api/all-attendance', async (req, res) => {
+    try {
+        const allAttendance = await firebaseRequest('/attendance');
+
+        const attendance = allAttendance ? Object.entries(allAttendance).map(([id, record]) => ({
+            id: id,
+            user_email: record.user_email,
+            date: record.date,
+            scan_time: record.scan_time,
+            status: record.status,
+            qr_type: record.qr_type,
+            created_at: record.created_at
+        })) : [];
+
+        // Sort by created_at descending
+        attendance.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        res.json({
+            success: true,
+            attendance: attendance,
+        });
+
+    } catch (error) {
+        console.error('Error getting all attendance:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Database error',
+            error: error.message,
+        });
     }
-    res.json({
-      success: true,
-      attendance: rows,
-    });
-  });
 });
 
-//GET/api/all-history
-app.get('/api/all-history', (req, res) => {
-  db.all('SELECT * FROM scan_history ORDER BY created_at DESC', [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({
-        success: false,
-        message: 'Database error',
-        error: err.message,
-      });
+// ============================================
+// DATA SYNC
+// ============================================
+app.post('/api/sync', async (req, res) => {
+    try {
+        const { users } = req.body;
+
+        const results = {
+            users: { success: 0, failed: 0 },
+        };
+
+        if (users && Array.isArray(users)) {
+            for (const user of users) {
+                try {
+                    const userKey = emailToKey(user.email);
+                    await firebaseRequest(`/users/${userKey}`, 'PUT', {
+                        email: user.email,
+                        name: user.name,
+                        grade_section: user.gradeSection || '',
+                        lrn: user.lrn,
+                        adviser: user.adviser || '',
+                        contact_number: user.parentContactNumber || '',
+                        schedule: JSON.stringify(user.schedule || {}),
+                        qr_code_in: user.qrCodeIn,
+                        qr_code_out: user.qrCodeOut,
+                        created_at: user.createdAt || new Date().toISOString()
+                    });
+                    results.users.success++;
+                } catch (e) {
+                    results.users.failed++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            message: 'Sync completed',
+            results: results,
+        });
+
+    } catch (error) {
+        console.error('Error in sync:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Sync error',
+            error: error.message,
+        });
     }
-    res.json({
-      success: true,
-      history: rows,
-    });
-  });
 });
 
-// Start server
+// ============================================
+// START SERVER
+// ============================================
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on http://0.0.0.0:${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`Database Viewer: http://localhost:${PORT}/`);
-  console.log(`Network access: http://192.168.56.1:${PORT}/`);
+    console.log('============================================');
+    console.log('🔥 ThisApp Backend - Firebase Version');
+    console.log('============================================');
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/api/health`);
+    console.log(`Database: ${FIREBASE_DATABASE_URL}`);
+    console.log('============================================');
 });
-// Bug #6 fix: Enhanced graceful shutdown
-const gracefulShutdown = (signal) => {
-  console.log(`\n${signal} received. Closing database and shutting down gracefully...`);
-
-  db.close((err) => {
-    if (err) {
-      console.error('Error closing database:', err.message);
-      process.exit(1);
-    } else {
-      console.log('Database connection closed successfully');
-      process.exit(0);
-    }
-  });
-};
-
-// Handle different termination signals
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));   // Ctrl+C
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // Kill command
-process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // Nodemon restart
-
-

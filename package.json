@@ -2,11 +2,10 @@
   "name": "thisapp-backend",
   "version": "2.0.0",
   "description": "Student Attendance System Backend - Firebase Version",
-  "main": "index-firebase.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node index-firebase.js",
-    "start:sqlite": "node index.js",
-    "dev": "node index-firebase.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
   "engines": {
     "node": ">=18.0.0"

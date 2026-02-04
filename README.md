@@ -1,107 +1,135 @@
-# Backend SQLite Server
+# ThisApp Backend - Firebase Version
 
-Backend server para sa attendance system na gumagamit ng SQLite database.
+Backend server for the Student Attendance QR System using **Firebase Realtime Database**.
 
-## Setup
+## 🔥 Features
 
-1. **Install dependencies:**
+- **Firebase Realtime Database** for persistent cloud storage
+- **No data loss** on server restart
+- **Real-time sync** capabilities
+- **Free tier** with generous limits
+
+## 🌐 Deployment
+
+**Production URL**: `https://thisapp-backend.onrender.com`
+
+Deployed on [Render.com](https://render.com) with auto-deploy from GitHub.
+
+## 📡 API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check |
+| `/api/scan` | POST | Process QR code scan |
+| `/api/users` | POST | Register/update user |
+| `/api/users/:email` | GET | Get user by email |
+| `/api/all-users` | GET | Get all users |
+| `/api/history/:email` | GET | Get scan history |
+| `/api/attendance/:email` | GET | Get attendance records |
+| `/api/all-attendance` | GET | Get all attendance |
+| `/api/sync` | POST | Bulk sync data |
+
+## 🔧 Environment Variables
+
+Set these in Render dashboard:
+
+| Key | Value |
+|-----|-------|
+| `PORT` | `8080` |
+| `FIREBASE_DATABASE_URL` | `https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app` |
+
+## 🏠 Local Development
+
+1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. **Start the server:**
-   ```bash
-   node index.js
+2. Create `.env` file:
+   ```
+   PORT=8080
+   FIREBASE_DATABASE_URL=https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app
    ```
 
-   O kaya:
+3. Start server:
    ```bash
    npm start
    ```
 
-3. **Server will run on:**
-   - Default port: `8080`
-   - URL: `http://localhost:8080`
-   - Para sa network access: `http://YOUR_IP_ADDRESS:8080`
+4. Test health endpoint:
+   ```
+   http://localhost:8080/api/health
+   ```
 
-## API Endpoints
+## 📱 ESP32 Integration
 
-### Health Check
-- **GET** `/api/health`
-- Returns server status
-
-### QR Code Scan (from ESP32-CAM)
-- **POST** `/api/scan`
-- Body: `{ "qrCode": "user@email.com_IN_12345678901" }`
-- Processes QR code scan and saves to database
-- Returns scan result with status (present/absent/invalid)
-
-### User Management
-- **POST** `/api/users` - Create or update user
-  - Body: User data (email, name, lrn, etc.)
-  
-- **GET** `/api/users/:email` - Get user by email
-
-### History & Attendance
-- **GET** `/api/history/:email` - Get scan history for user
-- **GET** `/api/attendance/:email` - Get attendance records for user
-
-### Data Sync
-- **POST** `/api/sync` - Sync data from mobile app
-  - Body: `{ "users": [], "scanHistory": [], "attendance": [] }`
-
-## Database
-
-The server automatically creates SQLite database file `attendance.db` in the same directory with the following tables:
-
-- `users` - User information
-- `attendance` - Attendance records
-- `scan_history` - All QR scan activities
-
-## Configuration
-
-Update the port in `index.js`:
-```javascript
-const PORT = process.env.PORT || 8080;
+Update your ESP32 code to use:
+```cpp
+const char* SERVER_URL = "https://thisapp-backend.onrender.com/api/scan";
 ```
 
-Or set environment variable:
-```bash
-PORT=3000 node index.js
+## 📲 Flutter App Integration
+
+Update `lib/services/api_service.dart`:
+```dart
+static const String baseUrl = 'https://thisapp-backend.onrender.com';
 ```
 
-## Network Access
+## 🔐 Firebase Security
 
-Para ma-access ng ESP32-CAM at mobile app:
-
-1. **Find your computer's IP address:**
-   - Windows: `ipconfig`
-   - Mac/Linux: `ifconfig` or `ip addr`
-
-2. **Update Flutter app API URL:**
-   - Open `lib/services/api_service.dart`
-   - Change `baseUrl` to your IP: `http://YOUR_IP:8080`
-
-3. **Make sure firewall allows connections on port 8080**
-
-## Testing
-
-Test the API using curl or Postman:
-
-```bash
-# Health check
-curl http://localhost:8080/api/health
-
-# Scan QR code
-curl -X POST http://localhost:8080/api/scan \
-  -H "Content-Type: application/json" \
-  -d '{"qrCode":"user@email.com_IN_12345678901"}'
+Current rules are open for testing. For production, update Firebase rules:
+```json
+{
+  "rules": {
+    "users": {
+      ".read": true,
+      ".write": true
+    },
+    "attendance": {
+      ".read": true,
+      ".write": true
+    },
+    "scan_history": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
 ```
 
-## Notes
+## 📊 Database Structure (Firebase)
 
-- Database file (`attendance.db`) ay automatic na mag-create sa first run
-- Server listens on `0.0.0.0` para ma-access from network
-- CORS enabled para sa cross-origin requests
-- Graceful shutdown supported (Ctrl+C)
+```
+/users/{email_key}
+  - email
+  - name
+  - grade_section
+  - lrn
+  - adviser
+  - contact_number
+  - schedule
+  - qr_code_in
+  - qr_code_out
+  - created_at
 
+/attendance/{email_date_type}
+  - user_email
+  - date
+  - scan_time
+  - status
+  - qr_type
+  - created_at
+
+/scan_history/{auto_id}
+  - user_email
+  - qr_code
+  - qr_type
+  - scan_time
+  - status
+  - message
+  - created_at
+```
+
+---
+
+*Last updated: February 2026*
