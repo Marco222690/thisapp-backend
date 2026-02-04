@@ -1,26 +1,26 @@
 {
   "name": "thisapp-backend",
-  "version": "1.0.0",
-  "description": "Student Attendance System Backend",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "Student Attendance System Backend - Firebase Version",
+  "main": "index-firebase.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js",
-    "postinstall": "npm rebuild sqlite3"
+    "start": "node index-firebase.js",
+    "start:sqlite": "node index.js",
+    "dev": "node index-firebase.js"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "express": "^4.18.2",
     "cors": "^2.8.5",
-    "sqlite3": "^5.1.7",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
   },
   "keywords": [
     "attendance",
     "qr-code",
-    "student"
+    "student",
+    "firebase"
   ],
   "author": "Marco",
   "license": "MIT"

@@ -391,7 +391,7 @@
                 return;
             }
 
-            let html = '<table><thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Grade & Section</th><th>LRN</th><th>Adviser</th><th>Created</th></tr></thead><tbody>';
+            let html = '<table><thead><tr><th>ID</th><th>Email</th><th>Name</th><th>Grade & Section</th><th>LRN</th><th>Adviser</th><th>Contact #</th><th>Created</th></tr></thead><tbody>';
             allData.users.forEach(user => {
                 html += `
                     <tr>
@@ -401,6 +401,7 @@
                         <td>${user.grade_section}</td>
                         <td>${user.lrn}</td>
                         <td>${user.adviser}</td>
+                        <td>${user.contact_number || '-'}</td>
                         <td>${new Date(user.created_at).toLocaleString()}</td>
                     </tr>
                 `;

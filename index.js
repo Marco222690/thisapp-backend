@@ -4,10 +4,38 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
+// const nodemailer = require('nodemailer'); // Removed for SMS
 const path = require('path');
 const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// ============================================
+// SMS Service Configuration
+// ============================================
+// Placeholder for SMS Logic (using GSM Module)
+// If GSM module is connected to backend, you would initialize serial port here.
+// const SerialPort = require('serialport');
+
+// Function to send SMS notification (Placeholder)
+async function sendParentSMS(contactNumber, studentName, type, time) {
+  if (!contactNumber || contactNumber.trim() === '') {
+    console.log('⚠️ No contact number provided, skipping SMS');
+    return { success: false, message: 'No contact number' };
+  }
+
+  const scanType = type === 'IN' ? 'IN' : 'OUT';
+  // Short SMS message
+  const message = `Attendance: ${studentName} scanned ${scanType} at ${time}.`;
+
+  console.log(`📱 [GSM MOCK] Sending SMS to ${contactNumber}: "${message}"`);
+
+  // TODO: Add actual GSM AT Command logic here if GSM is connected to Server
+  // or return this message to ESP32 if ESP32 handles SMS.
+
+  return { success: true, message: 'SMS Queued/Sent' };
+}
+
 
 // ============================================
 // Bug #1 fix: Philippine Timezone Helper
@@ -185,6 +213,7 @@ function initializeDatabase() {
       grade_section TEXT NOT NULL,
       lrn TEXT NOT NULL,
       adviser TEXT NOT NULL,
+      contact_number TEXT,
       schedule TEXT NOT NULL,
       qr_code_in TEXT NOT NULL,
       qr_code_out TEXT NOT NULL,
@@ -433,6 +462,24 @@ function processQrScan(qrCode) {
               }
             );
 
+            // Send SMS notification (Mock/Placeholder)
+            if (user.contact_number && user.contact_number.trim() !== '') {
+              sendParentSMS(
+                user.contact_number,
+                user.name,
+                qrType,
+                scanTime
+              ).then(smsResult => {
+                if (smsResult.success) {
+                  console.log(`📱 SMS request processed for: ${user.contact_number}`);
+                }
+              }).catch(err => {
+                console.error('SMS error:', err);
+              });
+            } else {
+              console.log(`ℹ️ No contact number for ${user.name}`);
+            }
+
             resolve({
               success: true,
               status: status,
@@ -442,6 +489,7 @@ function processQrScan(qrCode) {
               qrType: qrType,
               scanTime: scanTime,
               date: date,
+              contactNumber: user.contact_number // Return contact number so ESP32 can use it if needed
             });
           }
         );
@@ -483,7 +531,7 @@ app.post('/api/scan', async (req, res) => {
 //POST/api/users
 app.post('/api/users', (req, res) => {
   try {
-    const { email, name, gradeSection, lrn, adviser, schedule, qrCodeIn, qrCodeOut } = req.body;
+    const { email, name, gradeSection, lrn, adviser, parentContactNumber, schedule, qrCodeIn, qrCodeOut } = req.body;
 
     // Bug #2 fix: Validate input data
     const validation = validateUserData({
@@ -510,6 +558,7 @@ app.post('/api/users', (req, res) => {
     const sanitizedGradeSection = sanitizeString(gradeSection);
     const sanitizedLrn = sanitizeString(lrn);
     const sanitizedAdviser = sanitizeString(adviser);
+    const sanitizedContactNumber = sanitizeString(parentContactNumber);
     const sanitizedQrIn = sanitizeString(qrCodeIn);
     const sanitizedQrOut = sanitizeString(qrCodeOut);
 
@@ -517,13 +566,14 @@ app.post('/api/users', (req, res) => {
     const now = new Date().toISOString();
 
     db.run(
-      `INSERT INTO users (email, name, grade_section, lrn, adviser, schedule, qr_code_in, qr_code_out, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO users (email, name, grade_section, lrn, adviser, contact_number, schedule, qr_code_in, qr_code_out, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(email) DO UPDATE SET
        name = excluded.name,
        grade_section = excluded.grade_section,
        lrn = excluded.lrn,
        adviser = excluded.adviser,
+       contact_number = excluded.contact_number,
        schedule = excluded.schedule,
        qr_code_in = excluded.qr_code_in,
        qr_code_out = excluded.qr_code_out`,
@@ -533,6 +583,7 @@ app.post('/api/users', (req, res) => {
         sanitizedGradeSection,
         sanitizedLrn,
         sanitizedAdviser,
+        sanitizedContactNumber,
         scheduleJson,
         sanitizedQrIn,
         sanitizedQrOut,
